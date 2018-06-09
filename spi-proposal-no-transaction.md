@@ -20,13 +20,6 @@ are supported using the `channel` parameter.
 
 The `SPI_DEVICE_CONFIG` is used to configure each attached SPI device.
 
-In the same spirit as the Arduino SPI library, a `SPI_BEGIN_TRANSACTION` command
-and a `SPI_END_TRANSACTON` command are available to frame data transfers related
-to a specific SPI device. This is useful in Arduino applications by reinforcing
-that arbitrary reads and writes can't occur between 2 or more SPI devices
-without being part of a transaction (since each device may have a different
-clock speed, data mode, bit order, csPin, etc).
-
 There are 3 ways to send and receive data from the SPI slave device:
 
 1. `SPI_TRANSFER` For each word written a word is read simultaneously.
@@ -75,9 +68,9 @@ device the data corresponds to.
 A chip select pin (`csPin`) can optionally be specified. This pin will be
 controlled per the rules specified in `csPinOptions`. For uncommon use cases
 of CS or other required HW pins per certain SPI devices, it is better to control
-them separately by not specifying a CS pin and instead using Firmata
-`DIGITAL_MESSAGE` to control the CS pin state. If a CS pin is specified, the
-`csPinOptions` for that pin must also be specified.
+them separately by setting `CS_PIN_CONTROL` to 0 (disable) and using Firmata
+`DIGITAL_MESSAGE` commands to control the CS pin state. If `CS_PIN_CONTROL` is
+enabled, the `csPin` number must also be specified.
 
 ```
 0:  START_SYSEX
@@ -142,49 +135,6 @@ If `CS_PIN_CONTROL` is set to 0 (disable), the csPin parameter is ignored. Set
 the value to zero. The user will then need to manually control the csPin state
 using `DIGITAL_MESSAGE` commands.
 
-
-### SPI_BEGIN_TRANSACTION
-
-Required for platforms that support the concept of SPI transactions, such as
-Arduino. Optional if transactions are not supported (some Linux-based
-platforms for example).
-
-The `deviceId` parameter is used to identify which device on the specified
-channel the transaction belongs two. 
-
-If `CS_PIN_CONTROL` is enabled, the pin will automatically be set to the
-`CS_ACTIVE_STATE` at the beginning of the transaction.
-
-Send the `SPI_END_TRANSACTION` command at the end of the transaction.
-
-```
-0:  START_SYSEX
-1:  SPI_DATA              (0x68)
-2:  SPI_BEGIN_TRANSACTION (0x02)
-3:  deviceId | channel    (bits 3-6: deviceId, bits 0-2: channel)
-4:  END_SYSEX
-```
-
-### SPI_END_TRANSACTION
-
-Required for platforms that support the concept of SPI transactions, such as
-Arduino. Optional if transactions are not supported (some Linux-based
-platforms for example).
-
-The `deviceId` parameter is used to identify which device on the specified
-channel the transaction belongs two. 
-
-If `CS_PIN_CONTROL` is enabled, the csPin will automatically be toggled at the
-end of the transaction.
-
-```
-0:  START_SYSEX
-1:  SPI_DATA              (0x68)
-2:  SPI_END_TRANSACTION   (0x03)
-3:  deviceId | channel    (bits 3-6: deviceId, bits 0-2: channel)
-4:  END_SYSEX
-```
-
 ### SPI_TRANSFER
 
 Full-duplex write/read transfer. This is the normal SPI transfer mode, a word
@@ -199,16 +149,27 @@ SPI transaction.
 the SPI_REPLY message matches the request. For each request message, increment
 a single 7-bit requestId value, rolling it over to 0 when > 127.
 
+`csPinChange` is used to control the csPin at the end of the transfer. By
+default the csPin will be deselected (the csPin will be toggled). However, to
+prevent deselection to enable back-to-back transfers for example, set
+`csPinChange` to 0 and the pin state won't be affected.
+
+If `CS_PIN_CONTROL` is enabled, then the csPin active state will be set when
+the `SPI_TRANSFER` command is received. It will only be deselected (toggled) at
+the end of the transfer if `csPinChange` is set to 1.
+
 ```
 0:  START_SYSEX
 1:  SPI_DATA              (0x68)
-2:  SPI_TRANSFER          (0x04)
+2:  SPI_TRANSFER          (0x02)
 3:  deviceId | channel    (bits 3-6: deviceId, bits 0-2: channel)
 4:  requestId             (0-127) // increment for each call
-5.  numWords              (0-127: number of words to transfer)
-6:  data 0                (bits 0-6)
-7:  data 0                (bits 7-14 if word size if word size > 7 && < 15)
-8:  data 0                (if word size > 14)
+5:  csPinChange           (0 = don't deselect csPin
+                           1 = deselect csPin (default))
+6.  numWords              (0-127: number of words to transfer)
+7:  data 0                (bits 0-6)
+8:  data 0                (bits 7-14 if word size if word size > 7 && < 15)
+9:  data 0                (if word size > 14)
 ...                       up to numWords * (wordSize / 7)
 N:  END_SYSEX
 ```
@@ -221,16 +182,21 @@ command is sent.
 Provided as a convenience. The same can be accomplished using `SPI_TRANSFRER`
 and ignoring the `SPI_REPLY` command.
 
+If `CS_PIN_CONTROL` is enabled, then the csPin active state will be set when
+the `SPI_WRITE` command is received. It will only be deselected (toggled) at the
+end of the write if `csPinChange` is set to 1.
+
 ```
 0:  START_SYSEX
 1:  SPI_DATA              (0x68)
-2:  SPI_WRITE             (0x05)
+2:  SPI_WRITE             (0x03)
 3:  deviceId | channel    (bits 3-6: deviceId, bits 0-2: channel)
 4:  requestId             (0-127) // increment for each call
-5.  numWords              (0-127: number of words to write)
-6:  data 0                (bits 0-6)
-7:  data 0                (bits 7-14 if word size if word size > 7 && < 15)
-8:  data 0                (if word size > 14)
+5:  csPinChange           (0 = no change, 1 = toggle)
+6.  numWords              (0-127: number of words to write)
+7:  data 0                (bits 0-6)
+8:  data 0                (bits 7-14 if word size if word size > 7 && < 15)
+9:  data 0                (if word size > 14)
 ...                       up to numWords * (wordSize / 7)
 N:  END_SYSEX
 ```
@@ -243,14 +209,19 @@ Only read data, writing `0` for each word to be read. Reply is sent via
 Provided as a convenience. The same can be accomplished using `SPI_TRANSFRER`
 and sending a `0` for each byte to be read.
 
+If `CS_PIN_CONTROL` is enabled, then the csPin active state will be set when
+the `SPI_READ` command is received. It will only be deselected (toggled) at the
+end of the read if `csPinChange` is set to 1.
+
 ```
 0:  START_SYSEX
 1:  SPI_DATA              (0x68)
-2:  SPI_WRITE             (0x06)
+2:  SPI_WRITE             (0x04)
 3:  deviceId | channel    (bits 3-6: deviceId, bits 0-2: channel)
 4:  requestId             (0-127)  // increment for each call
-5.  numWords              (0-127: number of words to read)
-6:  END_SYSEX
+5:  csPinChange           (0 = no change, 1 = toggle)
+6.  numWords              (0-127: number of words to read)
+7:  END_SYSEX
 ```
 
 ### SPI_REPLY
@@ -261,9 +232,9 @@ An array of data received from the SPI slave device in response to a
 ```
 0:  START_SYSEX
 1:  SPI_DATA              (0x68)
-2:  SPI_REPLY             (0x07)
+2:  SPI_REPLY             (0x05)
 3:  deviceId | channel    (bits 3-6: deviceId, bits 0-2: channel)
-4:  requestId             (0-127) // should match the request
+4:  requestId             (0-127) // must match the ID from the request
 5:  numWords              (0-127: number of words in the reply)
 6:  data 0                (bits 0-6)
 7:  data 0                (bits 7-14 if word size if word size > 7 && < 15)
@@ -279,7 +250,7 @@ Call to release SPI hardware send before quitting a Firmata client application.
 ```
 0:  START_SYSEX
 1:  SPI_DATA              (0x68)
-2:  SPI_END               (0x08)
+2:  SPI_END               (0x06)
 3:  channel               (HW supports multiple SPI ports. range = 0-7, default = 0)
 4:  END_SYSEX
 ```
