@@ -215,11 +215,13 @@ N:  END_SYSEX
 
 ### SPI_WRITE
 
-Only write data, ignoring any data returned by the slave device. No `SPI_REPLY`
-command is sent.
+Only write data, ignoring any data returned by the slave device.
 
 Provided as a convenience. The same can be accomplished using `SPI_TRANSFRER`
 and ignoring the `SPI_REPLY` command.
+
+A `SPI_WRITE` command should return a `SPI_REPLY` with a value of 1 if the write
+was successful or a value of 0 if the write failed.
 
 ```
 0:  START_SYSEX

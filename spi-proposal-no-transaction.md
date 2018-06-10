@@ -176,8 +176,7 @@ N:  END_SYSEX
 
 ### SPI_WRITE
 
-Only write data, ignoring any data returned by the slave device. No `SPI_REPLY`
-command is sent.
+Only write data, ignoring any data returned by the slave device.
 
 Provided as a convenience. The same can be accomplished using `SPI_TRANSFRER`
 and ignoring the `SPI_REPLY` command.
@@ -185,6 +184,9 @@ and ignoring the `SPI_REPLY` command.
 If `CS_PIN_CONTROL` is enabled, then the csPin active state will be set when
 the `SPI_WRITE` command is received. It will only be deselected (toggled) at the
 end of the write if `csPinChange` is set to 1.
+
+A `SPI_WRITE` command should return a `SPI_REPLY` with a value of 1 if the write
+was successful or a value of 0 if the write failed.
 
 ```
 0:  START_SYSEX
